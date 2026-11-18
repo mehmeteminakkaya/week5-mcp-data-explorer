@@ -4,6 +4,7 @@ The dataset is replaced with a small fixture, so these tests never touch the net
 Separate tests fake the transport to prove the error paths return structured messages
 instead of raising.
 """
+
 import httpx
 import pytest
 
@@ -127,8 +128,13 @@ def test_details_returns_required_shape(dataset):
         {"code": "TRY", "name": "Turkish lira", "symbol": "₺"}
     ]
     assert details["languages"] == ["Turkish"]
-    assert details["flag_url"].endswith("/TUR.svg")
+    assert details["flag_url"].endswith("/tur.svg")
     assert {"cca3": "GRC", "name": None} in details["borders"]
+
+
+def test_flag_url_uses_lowercase_cca3(dataset):
+    """The dataset's flag files are lowercase: data/TUR.svg is a 404, data/tur.svg is 200."""
+    assert server.get_country_details("TUR")["flag_url"].endswith("/tur.svg")
 
 
 def test_details_accepts_cca3_code(dataset):
@@ -151,7 +157,10 @@ def test_details_ambiguous_name_returns_candidates(dataset):
 
 def test_details_unknown_country_returns_error(dataset):
     result = server.get_country_details("Atlantis")
-    assert "error" in result and "hint" in result
+    assert "error" in result
+    # "search with a shorter query" would not find Türkiye from "Turkey"; the hint has to
+    # offer a path that actually works.
+    assert "cca3" in result["hint"] and "Türkiye" in result["hint"]
 
 
 @pytest.mark.parametrize("name", ["", "   ", None, 3])
@@ -202,7 +211,9 @@ def test_http_status_error_becomes_structured_error(monkeypatch):
     _break_dataset(
         monkeypatch,
         httpx.HTTPStatusError(
-            "server error", request=request, response=httpx.Response(500, request=request)
+            "server error",
+            request=request,
+            response=httpx.Response(500, request=request),
         ),
     )
     assert "HTTP 500" in server.get_country_details("Turkey")["error"]
@@ -225,6 +236,38 @@ def test_non_list_payload_is_rejected(monkeypatch):
     monkeypatch.setattr(server.httpx, "get", lambda *a, **k: FakeResponse())
     result = server.search_countries("nige")
     assert "could not be parsed" in result[0]["error"]
+
+
+def test_null_only_payload_becomes_structured_error(monkeypatch):
+    """[null] is a non-empty list, but caching it would crash every later tool call."""
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [None]
+
+    monkeypatch.setattr(server, "_countries", None)
+    monkeypatch.setattr(server.httpx, "get", lambda *a, **k: FakeResponse())
+    rows = server.search_countries("nige")
+    assert "error" in rows[0] and "no usable country records" in rows[0]["error"]
+    assert server._countries is None  # nothing poisoned the cache
+
+
+def test_non_dict_records_are_dropped_and_cache_stays_usable(monkeypatch):
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [None, COUNTRIES[0]]
+
+    monkeypatch.setattr(server, "_countries", None)
+    monkeypatch.setattr(server.httpx, "get", lambda *a, **k: FakeResponse())
+    rows = server.search_countries("turk")
+    assert [row["cca3"] for row in rows] == ["TUR"]
+    assert server._countries == [COUNTRIES[0]]
 
 
 def test_cache_is_used_after_first_load(monkeypatch):

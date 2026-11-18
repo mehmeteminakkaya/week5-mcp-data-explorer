@@ -11,7 +11,7 @@ Built for the Week 5 assignment (*Advanced Context Management*).
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q        # 33 tests, no network needed
+python -m pytest -q        # 36 tests, no network needed
 ```
 
 Requires Python 3.10+ (`mcp<2`, `httpx`).
@@ -100,7 +100,7 @@ Returns `name`, `official`, `cca3`, `capital`, `region`, `subregion`, `currencie
     {"cca3": "ARM", "name": "Armenia"}, {"cca3": "GRC", "name": "Greece"},
     {"cca3": "IRN", "name": "Iran"},    {"cca3": "SYR", "name": "Syria"}
   ],
-  "flag_url": "https://raw.githubusercontent.com/mledoze/countries/master/data/TUR.svg"
+  "flag_url": "https://raw.githubusercontent.com/mledoze/countries/master/data/tur.svg"
 }
 ```
 
@@ -128,6 +128,7 @@ prints a traceback at the model:
 | HTTP error | `{"error": "country dataset request failed with HTTP 503"}` |
 | Transport error (DNS, refused) | `{"error": "country dataset request failed (ConnectError); check connectivity"}` |
 | Malformed JSON | `{"error": "country dataset could not be parsed: ..."}` |
+| Invalid records (e.g. a `null` entry) | `{"error": "country dataset could not be parsed: dataset payload contained no usable country records"}` |
 | No match | `search_countries` → `[]`; `get_country_details` → `{"error": ..., "hint": ...}` |
 | Ambiguous name | `{"error": ..., "candidates": [...], "hint": ...}` |
 
@@ -141,6 +142,10 @@ invocation.
   details with the name the server just returned — which is exactly how an agent should
   handle stale assumptions.
 - **Diacritics matter.** Searching `"turk"` does not match `"Türkiye"`; `"türk"` does.
+- **Flag files are lowercase.** The dataset serves `data/tur.svg`; `data/TUR.svg` is a 404,
+  so the tool lowercases the `cca3` only for the flag URL. The no-match hint tells the agent
+  to try a different spelling or the `cca3` code, because "search a shorter query" does not
+  get you from `"Turkey"` to `"Türkiye"`.
 - `population` is absent from the upstream records and is therefore omitted, not returned
   as `null`.
 

@@ -63,7 +63,7 @@ tool   : get_country_details(name: string)
           {"cca3": "GRC", "name": "Greece"}, {"cca3": "IRN", "name": "Iran"},
           {"cca3": "IRQ", "name": "Iraq"}, {"cca3": "SYR", "name": "Syria"}
         ],
-        "flag_url": "https://raw.githubusercontent.com/mledoze/countries/master/data/TUR.svg",
+        "flag_url": "https://raw.githubusercontent.com/mledoze/countries/master/data/tur.svg",
         "area": 783562
       }
 
@@ -136,16 +136,33 @@ into a message with a next action:
 | DNS/refused/TLS | `httpx.HTTPError` | `"...failed (ConnectError); check connectivity"` |
 | Garbage payload | `json.JSONDecodeError` / `ValueError` | `"...could not be parsed: ..."` |
 | Wrong shape (not a list) | `ValueError` (explicit check) | `"...could not be parsed: ..."` |
+| Records that are not objects (`[null]`) | `ValueError` after filtering | `"...could not be parsed: dataset payload contained no usable country records"` |
 
 Input validation happens before any I/O: empty or non-string `query`/`name`, non-integer or
 out-of-range `limit` (1–25) all return immediately. No matches is deliberately *not* an
 error for search (`[]`), while detail lookup returns an error plus a hint, because a missing
 detail usually means the agent's name assumption was wrong.
 
-Coverage: `test_server.py` has 33 offline tests — fixture data for the happy paths and a
+Coverage: `test_server.py` has 36 offline tests — fixture data for the happy paths and a
 faked `httpx.get` for each failure branch — including a test that the dataset is fetched
 exactly once for three calls (the cache), and one that a non-list payload is rejected
 rather than iterated over.
+
+## Follow-up — what CodeRabbit found
+
+CodeRabbit reviewed the submission PR and followed the links into this repository. It raised
+three findings; two were real defects here and all three are now fixed.
+
+| Finding | Severity | Verified before fixing? | Fix |
+| --- | --- | --- | --- |
+| Flag URLs used an uppercase `cca3`, so `data/TUR.svg` returned HTTP 404 | major | yes — `curl` gives 404 for `TUR.svg` and 200 for `tur.svg` | lowercase the code only for the URL; a test pins `/tur.svg` |
+| A `[null]` payload passed the non-empty-list check, poisoned the in-memory cache and made both tools raise `AttributeError` | major | yes — reproduced: `search -> AttributeError 'NoneType' object has no attribute 'get'` | non-dict records are filtered before caching; if nothing usable remains the load fails with the ordinary structured error; tests cover null-only and mixed payloads |
+| The no-match hint said "search with a shorter query", which cannot take the agent from `"Turkey"` to `"Türkiye"` | minor | yes — `"turk"` does not match `"Türkiye"` | hint now suggests a different spelling (the dataset uses local names) or the `cca3` code |
+
+The two majors share a root cause worth naming: both were **contract assumptions hidden on
+the happy path** — that `cca3` cases match the dataset's filenames, and that a non-empty list
+means usable records. Neither is exercised by normal traffic, so only an adversarial review
+that actually resolves the URL and feeds `[null]` finds them.
 
 ## What I learned
 

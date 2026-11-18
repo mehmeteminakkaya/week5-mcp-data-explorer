@@ -18,6 +18,7 @@ Run (STDIO):
 Tests:
     pytest
 """
+
 from __future__ import annotations
 
 import json
@@ -57,7 +58,13 @@ def load_countries() -> list[dict]:
         data = resp.json()
         if not isinstance(data, list) or not data:
             raise ValueError("dataset payload was not a non-empty JSON list")
-        _countries = data
+        # A record that is not an object (e.g. a null entry) would crash every tool that
+        # touches it and poison the cache for the rest of the process, so only dicts are
+        # kept. If nothing usable is left, fail like any other bad payload.
+        records = [record for record in data if isinstance(record, dict)]
+        if not records:
+            raise ValueError("dataset payload contained no usable country records")
+        _countries = records
     return _countries
 
 
@@ -126,7 +133,8 @@ def _details(country: dict, countries: list[dict]) -> dict:
         ],
         "languages": list(languages.values()),
         "borders": border_details,
-        "flag_url": FLAG_URL.format(cca3=country.get("cca3") or ""),
+        # The dataset names its flag files in lowercase; an uppercase cca3 is a 404.
+        "flag_url": FLAG_URL.format(cca3=(country.get("cca3") or "").lower()),
     }
     # Optional fields the dataset only carries for some countries: omit rather than
     # hand the model a null it has to reason about.
@@ -172,7 +180,9 @@ def search_countries(query: str, limit: int = DEFAULT_LIMIT) -> list[dict]:
         if needle in _common(c).casefold() or needle in _official(c).casefold()
     ]
     # Narrower names first, then ones that start with the query: better scanning order.
-    matches.sort(key=lambda c: (not _common(c).casefold().startswith(needle), len(_common(c))))
+    matches.sort(
+        key=lambda c: (not _common(c).casefold().startswith(needle), len(_common(c)))
+    )
     return [
         {
             "name": _common(c),
@@ -211,7 +221,11 @@ def get_country_details(name: str) -> dict:
         c
         for c in countries
         if needle
-        in {_common(c).casefold(), _official(c).casefold(), (c.get("cca3") or "").casefold()}
+        in {
+            _common(c).casefold(),
+            _official(c).casefold(),
+            (c.get("cca3") or "").casefold(),
+        }
     ]
     if len(exact) == 1:
         return _details(exact[0], countries)
@@ -227,7 +241,10 @@ def get_country_details(name: str) -> dict:
     if not partial:
         return {
             "error": f"no country matched {name!r}",
-            "hint": "call search_countries with a shorter query to find the exact name",
+            "hint": (
+                "try search_countries with a different spelling (the dataset uses local "
+                "names, e.g. 'Türkiye'), or pass the three-letter cca3 code (e.g. 'TUR')"
+            ),
         }
 
     partial.sort(key=lambda c: len(_common(c)))

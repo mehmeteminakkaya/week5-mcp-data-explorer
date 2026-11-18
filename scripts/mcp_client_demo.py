@@ -7,6 +7,7 @@ Usage:
 The client here is the same MCP stdio client a desktop client (Claude Desktop, an
 MCP-aware IDE) uses under the hood, so the transcript is what an agent sees.
 """
+
 import asyncio
 import json
 import os
@@ -73,25 +74,27 @@ async def main() -> int:
         print("### Happy-path session\n")
 
     params = StdioServerParameters(command=sys.executable, args=[str(SERVER)], env=env)
-    async with stdio_client(params) as (read, write):
-        async with ClientSession(read, write) as session:
-            info = await session.initialize()
-            print(f"server : {info.serverInfo.name} {info.serverInfo.version}")
-            listed = await session.list_tools()
-            for tool in listed.tools:
-                params_ = ", ".join(
-                    f"{name}: {spec.get('type', '?')}"
-                    for name, spec in (tool.inputSchema.get("properties") or {}).items()
-                )
-                print(f"tool   : {tool.name}({params_})")
-            print()
+    async with (
+        stdio_client(params) as (read, write),
+        ClientSession(read, write) as session,
+    ):
+        info = await session.initialize()
+        print(f"server : {info.serverInfo.name} {info.serverInfo.version}")
+        listed = await session.list_tools()
+        for tool in listed.tools:
+            params_ = ", ".join(
+                f"{name}: {spec.get('type', '?')}"
+                for name, spec in (tool.inputSchema.get("properties") or {}).items()
+            )
+            print(f"tool   : {tool.name}({params_})")
+        print()
 
-            for name, args in calls:
-                result = await session.call_tool(name, args)
-                print(f"> {name}({json.dumps(args, ensure_ascii=False)})")
-                print(f"  isError={result.isError}")
-                print(_show(_payload(result)))
-                print()
+        for name, args in calls:
+            result = await session.call_tool(name, args)
+            print(f"> {name}({json.dumps(args, ensure_ascii=False)})")
+            print(f"  isError={result.isError}")
+            print(_show(_payload(result)))
+            print()
     return 0
 
 
